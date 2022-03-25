@@ -106,9 +106,6 @@ def experiment_pattern(epochs=100):
     x_train, y_train = permuted_pattern_consecutive(
         N, 1000, pattern=[2, -3, 16], sigma=sigma
     )
-    x_val, y_val = permuted_pattern_consecutive(
-        N, 100, pattern=[2, -3, 16], sigma=sigma
-    )
     x_test, y_test = permuted_pattern_consecutive(
         N, 1000, pattern=[2, -3, 16], sigma=sigma
     )
@@ -122,8 +119,6 @@ def experiment_pattern(epochs=100):
         y_train,
         x_test,
         y_test,
-        x_val=x_val,
-        y_val=y_val,
         epochs=epochs,
     )
     return ret
@@ -185,7 +180,6 @@ def experiment_parameter_search(experiment_factory=comet_experiment):
     for sigma in [0.01, 0.1, 0.3, 0.7, 1.0, 3.0]:
         for N in [10, 30, 70, 100, 300, 700, 1000, 3000]:
             x_train, y_train = permuted_pattern(N, 1000, pattern=pattern, sigma=sigma)
-            x_val, y_val = permuted_pattern(N, 100, pattern=pattern, sigma=sigma)
             x_test, y_test = permuted_pattern(N, 1000, pattern=pattern, sigma=sigma)
             train_evaluate(
                 comet_experiment({"sigma": sigma, "N": N, "type": "FCN-NC"}),
@@ -194,8 +188,6 @@ def experiment_parameter_search(experiment_factory=comet_experiment):
                 y_train,
                 x_test,
                 y_test,
-                x_val=x_val,
-                y_val=y_val,
                 epochs=epochs,
             )
             # train_evaluate(comet_experiment({'sigma':sigma,'N':N, 'type':'CNN-NC'}), get_model_CNN(IN_SHAPE=x_train.shape[1:]),    x_train,y_train,x_test,y_test,x_val=x_val,y_val=y_val,epochs=epochs)
@@ -209,8 +201,6 @@ def experiment_parameter_search(experiment_factory=comet_experiment):
                     y_train,
                     x_test,
                     y_test,
-                    x_val=x_val,
-                    y_val=y_val,
                     epochs=epochs,
                 )
 
@@ -247,8 +237,6 @@ def train_evaluate(
     y_train,
     x_test,
     y_test,
-    x_val=None,
-    y_val=None,
     epochs=100,
     batch_size=16,
 ):
@@ -274,17 +262,10 @@ def train_evaluate(
         x_test, y_test = torch.tensor(x_test, dtype=torch.float32), torch.tensor(
             y_test, dtype=torch.long
         )
-        x_val, y_val = torch.tensor(x_test, dtype=torch.float32), torch.tensor(
-            y_test, dtype=torch.long
-        )
 
         d_train = TensorDataset(x_train, y_train)
-        d_test = TensorDataset(x_test, y_test)
-        d_val = TensorDataset(x_val, y_val)
 
         X_train = DataLoader(d_train, batch_size=batch_size, shuffle=True)
-        X_test = DataLoader(d_test, batch_size=batch_size, shuffle=True)
-        X_val = DataLoader(d_val, batch_size=batch_size, shuffle=True)
 
         optim = torch.optim.Adam(model.parameters(), lr=0.01)
         loss_fn = nn.CrossEntropyLoss()
@@ -298,10 +279,10 @@ def train_evaluate(
             train_loop(X_train, model, optim, loss_fn)
             model.eval()
             m = metric(model(x_train), y_train)
-            validation_results = metric(model(x_val), y_val)
-            print(f"epoch: {e+1}, metric: {m}, validation: {validation_results}")
+            test_results = metric(model(x_test), y_test)
+            print(f"epoch: {e+1}, metric: {m}, test: {test_results}")
             experiment.log_metrics(
-                {"epoch_metric": m, "epoch_validation": validation_results}
+                {"epoch_metric": m, "epoch_test": test_results}
             )
 
     with experiment.test():
