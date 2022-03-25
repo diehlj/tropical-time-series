@@ -26,9 +26,10 @@ import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 import torch.nn.functional as F
-from prettytable import PrettyTable
 import torchmetrics
+from torchinfo import summary
 import datetime
+import logging
 
 try:
     import seaborn as sns
@@ -181,6 +182,7 @@ def experiment_parameter_search(experiment_factory=comet_experiment):
         for N in [10, 30, 70, 100, 300, 700, 1000, 3000]:
             x_train, y_train = permuted_pattern(N, 1000, pattern=pattern, sigma=sigma)
             x_test, y_test = permuted_pattern(N, 1000, pattern=pattern, sigma=sigma)
+            logging.info(f"Training FCN with sigma: {sigma}, N: {N}")
             train_evaluate(
                 comet_experiment({"sigma": sigma, "N": N, "type": "FCN-NC"}),
                 get_model_FCN(IN_SHAPE=x_train.shape[1:]),
@@ -192,6 +194,7 @@ def experiment_parameter_search(experiment_factory=comet_experiment):
             )
             # train_evaluate(comet_experiment({'sigma':sigma,'N':N, 'type':'CNN-NC'}), get_model_CNN(IN_SHAPE=x_train.shape[1:]),    x_train,y_train,x_test,y_test,x_val=x_val,y_val=y_val,epochs=epochs)
             for dim_fn in [[5, 5, 11], [5, 11], [3, 3, 3]]:
+                logging.info(f"Training ISS with sigma: {sigma}, N: {N}, dim_fn: {dim_fn}")
                 train_evaluate(
                     comet_experiment(
                         {"sigma": sigma, "N": N, "type": "ISS-NC", "dim_fn": dim_fn}
@@ -273,7 +276,7 @@ def train_evaluate(
         metric = torchmetrics.Accuracy()
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-        experiment.log_text(pretty_parameters(model))
+        experiment.log_text(summary(model))
 
         for e in range(epochs):
             experiment.set_epoch(e)
@@ -284,7 +287,7 @@ def train_evaluate(
             model.eval()
             m = metric(model(x_train), y_train)
             test_results = metric(model(x_test), y_test)
-            print(f"epoch: {e+1}, metric: {m}, test: {test_results}")
+            print(f"epoch: {e+1}, train_metric: {m}, test_metric: {test_results}")
             experiment.log_metrics(
                 {"epoch_metric": m, "epoch_test": test_results}
             )
@@ -297,5 +300,6 @@ def train_evaluate(
 
 
 if __name__ == "__main__":
+    logging.basicConfig(format="[%(levelname)s] %(message)s")
     # experiment_pattern()
     experiment_parameter_search()
