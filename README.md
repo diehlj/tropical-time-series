@@ -1,4 +1,4 @@
-# tropical-time-series
+# Tropical time series - Accompanying code
 Accompanying code for [Tropical time series, iterated-sums signatures and quasisymmetric functions](https://arxiv.org/abs/2009.08443).
 
 ## Experiments
