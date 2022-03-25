@@ -224,6 +224,7 @@ def train_loop(batch, model, optim, loss_fn):
         loss.backward()
         optim.step()
 
+
 def pretty_parameters(model):
     table = PrettyTable(["Modules", "Parameters"])
     total_params = 0
@@ -292,19 +293,21 @@ def train_evaluate(
         experiment.log_text(pretty_parameters(model))
 
         for e in range(epochs):
-            experiment.set_epoch( e )
+            experiment.set_epoch(e)
             model.train()
             train_loop(X_train, model, optim, loss_fn)
             model.eval()
             m = metric(model(x_train), y_train)
             validation_results = metric(model(x_val), y_val)
             print(f"epoch: {e+1}, metric: {m}, validation: {validation_results}")
-            experiment.log_metrics({'epoch_metric': m, 'epoch_validation': validation_results})
+            experiment.log_metrics(
+                {"epoch_metric": m, "epoch_validation": validation_results}
+            )
 
     with experiment.test():
         results = metric(model(x_test), y_test)
         print(f"test acc: {results}, {results.shape}")
-        experiment.log_metrics({'accuracy': results})
+        experiment.log_metrics({"accuracy": results})
     return results
 
 
