@@ -205,8 +205,9 @@ def experiment_parameter_search(experiment_factory=comet_experiment):
                 )
 
 
-def train_loop(batch, model, optim, loss_fn):
+def train_loop(batch, model, optim, loss_fn, device):
     for (X, y) in batch:
+        X, y = X.to(device), y.to(device)
         pred = model(X)
         loss = loss_fn(pred, y)
 
@@ -270,13 +271,16 @@ def train_evaluate(
         optim = torch.optim.Adam(model.parameters(), lr=0.01)
         loss_fn = nn.CrossEntropyLoss()
         metric = torchmetrics.Accuracy()
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
         experiment.log_text(pretty_parameters(model))
 
         for e in range(epochs):
             experiment.set_epoch(e)
             model.train()
-            train_loop(X_train, model, optim, loss_fn)
+            model.to(device)
+            train_loop(X_train, model, optim, loss_fn, device)
+            model.cpu()
             model.eval()
             m = metric(model(x_train), y_train)
             test_results = metric(model(x_test), y_test)
