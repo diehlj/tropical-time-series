@@ -26,9 +26,10 @@ import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 import torch.nn.functional as F
-from prettytable import PrettyTable
 import torchmetrics
+from torchinfo import summary
 import datetime
+import logging
 
 try:
     import seaborn as sns
@@ -106,9 +107,6 @@ def experiment_pattern(epochs=100):
     x_train, y_train = permuted_pattern_consecutive(
         N, 1000, pattern=[2, -3, 16], sigma=sigma
     )
-    x_val, y_val = permuted_pattern_consecutive(
-        N, 100, pattern=[2, -3, 16], sigma=sigma
-    )
     x_test, y_test = permuted_pattern_consecutive(
         N, 1000, pattern=[2, -3, 16], sigma=sigma
     )
@@ -122,8 +120,6 @@ def experiment_pattern(epochs=100):
         y_train,
         x_test,
         y_test,
-        x_val=x_val,
-        y_val=y_val,
         epochs=epochs,
     )
     return ret
@@ -185,8 +181,8 @@ def experiment_parameter_search(experiment_factory=comet_experiment):
     for sigma in [0.01, 0.1, 0.3, 0.7, 1.0, 3.0]:
         for N in [10, 30, 70, 100, 300, 700, 1000, 3000]:
             x_train, y_train = permuted_pattern(N, 1000, pattern=pattern, sigma=sigma)
-            x_val, y_val = permuted_pattern(N, 100, pattern=pattern, sigma=sigma)
             x_test, y_test = permuted_pattern(N, 1000, pattern=pattern, sigma=sigma)
+            logging.info(f"Training FCN with sigma: {sigma}, N: {N}")
             train_evaluate(
                 comet_experiment({"sigma": sigma, "N": N, "type": "FCN-NC"}),
                 get_model_FCN(IN_SHAPE=x_train.shape[1:]),
@@ -194,12 +190,11 @@ def experiment_parameter_search(experiment_factory=comet_experiment):
                 y_train,
                 x_test,
                 y_test,
-                x_val=x_val,
-                y_val=y_val,
                 epochs=epochs,
             )
             # train_evaluate(comet_experiment({'sigma':sigma,'N':N, 'type':'CNN-NC'}), get_model_CNN(IN_SHAPE=x_train.shape[1:]),    x_train,y_train,x_test,y_test,x_val=x_val,y_val=y_val,epochs=epochs)
             for dim_fn in [[5, 5, 11], [5, 11], [3, 3, 3]]:
+                logging.info(f"Training ISS with sigma: {sigma}, N: {N}, dim_fn: {dim_fn}")
                 train_evaluate(
                     comet_experiment(
                         {"sigma": sigma, "N": N, "type": "ISS-NC", "dim_fn": dim_fn}
@@ -209,25 +204,19 @@ def experiment_parameter_search(experiment_factory=comet_experiment):
                     y_train,
                     x_test,
                     y_test,
-                    x_val=x_val,
-                    y_val=y_val,
                     epochs=epochs,
                 )
 
 
-def train_loop(batch, model, optim, loss_fn):
+def train_loop(batch, model, optim, loss_fn, device):
     for (X, y) in batch:
+        X, y = X.to(device), y.to(device)
         pred = model(X)
         loss = loss_fn(pred, y)
 
         optim.zero_grad()
         loss.backward()
         optim.step()
-
-
-def test_loop(batch, model, metric):
-    X, y = batch
-    return metric(model(X), y)
 
 
 def pretty_parameters(model):
@@ -252,8 +241,6 @@ def train_evaluate(
     y_train,
     x_test,
     y_test,
-    x_val=None,
-    y_val=None,
     epochs=100,
     batch_size=16,
 ):
@@ -279,43 +266,40 @@ def train_evaluate(
         x_test, y_test = torch.tensor(x_test, dtype=torch.float32), torch.tensor(
             y_test, dtype=torch.long
         )
-        x_val, y_val = torch.tensor(x_test, dtype=torch.float32), torch.tensor(
-            y_test, dtype=torch.long
-        )
 
         d_train = TensorDataset(x_train, y_train)
-        d_test = TensorDataset(x_test, y_test)
-        d_val = TensorDataset(x_val, y_val)
 
         X_train = DataLoader(d_train, batch_size=batch_size, shuffle=True)
-        X_test = DataLoader(d_test, batch_size=batch_size, shuffle=True)
-        X_val = DataLoader(d_val, batch_size=batch_size, shuffle=True)
 
         optim = torch.optim.Adam(model.parameters(), lr=0.01)
         loss_fn = nn.CrossEntropyLoss()
         metric = torchmetrics.Accuracy()
+        device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-        experiment.log_text(pretty_parameters(model))
+        experiment.log_text(summary(model))
 
         for e in range(epochs):
             experiment.set_epoch(e)
             model.train()
-            train_loop(X_train, model, optim, loss_fn)
+            model.to(device)
+            train_loop(X_train, model, optim, loss_fn, device)
+            model.cpu()
             model.eval()
-            m = test_loop(X_train, model, metric)
-            validation_results = test_loop(X_val, model, metric)
-            print(f"epoch: {e+1}, metric: {m}, validation: {validation_results}")
+            m = metric(model(x_train), y_train)
+            test_results = metric(model(x_test), y_test)
+            print(f"epoch: {e+1}, train_metric: {m}, test_metric: {test_results}")
             experiment.log_metrics(
-                {"epoch_metric": m, "epoch_validation": validation_results}
+                {"epoch_metric": m, "epoch_test": test_results}
             )
 
     with experiment.test():
-        results = test_loop(X_test, model, metric)
+        results = metric(model(x_test), y_test)
         print(f"test acc: {results}, {results.shape}")
         experiment.log_metrics({"accuracy": results})
     return results
 
 
 if __name__ == "__main__":
+    logging.basicConfig(format="[%(levelname)s] %(message)s")
     # experiment_pattern()
     experiment_parameter_search()
